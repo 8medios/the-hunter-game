@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&display=swap');
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: "Pixelify Sans", serif;
+}
+
+body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background: black;
+    color: red;
+    text-align: center;
+    position: relative;
+}
+
+/* Simulación de pantalla antigua */
+body::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: url('crt-scanlines.png'); /* Imagen de scanlines para dar efecto CRT */
+    opacity: 0.3;
+    pointer-events: none;
+}
+
+.menu-container {
+    background: black;
+    padding: 20px;
+    border: 3px solid red;
+    text-align: center;
+    width: 300px;
+}
+
+h1 {
+    font-size: 2rem;
+    text-shadow: 2px 2px 0px darkred;
+}
+
+button {
+    display: block;
+    width: 200px;
+    padding: 10px;
+    margin: 10px auto;
+    font-size: 1.2rem;
+    color: red;
+    background: black;
+    border: 2px solid red;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+button:hover {
+    background: darkred;
+}
+
+/* Modal estilo retro */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    background: black;
+    color: red;
+    padding: 20px;
+    border: 3px solid darkred;
+    text-align: center;
+}
+
+a{
+    text-decoration: none;
+}
