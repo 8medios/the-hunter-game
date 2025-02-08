@@ -4,14 +4,12 @@ const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-// Parámetros del mundo
 const TILE_SIZE = 32;
 const WORLD_WIDTH = 500;
 const WORLD_HEIGHT = 500;
 const world = [];
 const objects = [];
 
-// Definición de biomas (colores)
 const BIOMES = {
     "dirt": { color: "#78451A" },
     "grass1": { color: "#4A8A22" },
@@ -19,12 +17,10 @@ const BIOMES = {
     "forest": { color: "#184A22" }
 };
 
-// Inicializamos el ruido (se asume que noisejs está incluido en el HTML)
 noise.seed(Math.random());
 
 function generateWorld() {
     const scale = 50;  // A mayor escala, las regiones son más grandes.
-    
     for (let y = 0; y < WORLD_HEIGHT; y++) {
         world[y] = [];
         objects[y] = [];
@@ -40,10 +36,7 @@ function generateWorld() {
             } else {
                 biome = "forest";
             }
-            
             world[y][x] = BIOMES[biome];
-            
-            // Colocamos un árbol en algunas celdas del bioma "forest"
             if (biome === "forest" && Math.random() < 0.05) {
                 objects[y][x] = "tree";
             } else {
@@ -54,10 +47,10 @@ function generateWorld() {
 }
 generateWorld();
 
-// Variables para manejo de proyectiles y puntería
-let bullets = [];         // Array para almacenar las balas
-let mouseX = 0, mouseY = 0; // Posición del mouse en pantalla
-let isAiming = false;     // Indica si se está en modo puntería (botón derecho)
+// Variables para proyectiles y puntería
+let bullets = [];
+let mouseX = 0, mouseY = 0;
+let isAiming = false;  // Se activa al presionar el botón derecho
 
 // Definición del jugador y sus armas
 const player = {
@@ -71,29 +64,30 @@ const player = {
         rifle: {
             name: "Rifle de caza",
             magazine: 5,
-            ammo: 5,           // Capacidad inicial
-            reloadTime: 1000,  // Tiempo de recarga en milisegundos (1 s)
+            ammo: 5,
+            reloadTime: 1000,  // 1 segundo
             isReloading: false,
             range: 500,        // Largo alcance
-            autoReload: true   // Cada disparo requiere recarga
+            autoReload: true   // Cada disparo requiere recarga (espera entre disparos)
         },
         revolver: {
             name: "Revolver",
             magazine: 8,
-            ammo: 8,           // Capacidad inicial
-            reloadTime: 1500,  // Tiempo de recarga (1.5 s)
+            ammo: 8,
+            reloadTime: 1500,  // 1.5 segundos
             isReloading: false,
             range: 200,        // Corto alcance
             autoReload: false  // Se recarga solo al agotarse la munición
         }
     },
-    currentWeapon: "rifle" // Arma por defecto
+    currentWeapon: "rifle"
 };
 
-// Manejo de teclado para mover al jugador y cambiar de arma
+// Manejo de teclado
 const keys = {};
 window.addEventListener("keydown", (e) => {
     keys[e.key] = true;
+    // Cambiar arma: "1" para rifle, "2" para revolver
     if (e.key === "1") {
         player.currentWeapon = "rifle";
     } else if (e.key === "2") {
@@ -102,78 +96,77 @@ window.addEventListener("keydown", (e) => {
 });
 window.addEventListener("keyup", (e) => keys[e.key] = false);
 
-// Actualización de la posición del mouse (en pantalla)
+// Actualizar posición del mouse (coordenadas de pantalla)
 canvas.addEventListener("mousemove", (e) => {
     const rect = canvas.getBoundingClientRect();
     mouseX = e.clientX - rect.left;
     mouseY = e.clientY - rect.top;
 });
 
-// Manejo de disparo y puntería con el mouse:
-// - Izquierdo para disparar
-// - Derecho para activar la puntería (para el rifle)
+// Manejo de disparo y puntería:
+// - Botón izquierdo para disparar
+// - Botón derecho para activar/desactivar modo apuntar
 canvas.addEventListener("mousedown", (e) => {
-    if (e.button === 0) { // Botón izquierdo: disparar
+    if (e.button === 0) { // Izquierdo: disparar
         shoot();
-    } else if (e.button === 2) { // Botón derecho: activar puntería
+    } else if (e.button === 2) { // Derecho: activar puntería
         isAiming = true;
     }
 });
 canvas.addEventListener("mouseup", (e) => {
-    if (e.button === 2) { // Al soltar el botón derecho, se desactiva la puntería
+    if (e.button === 2) {
         isAiming = false;
     }
 });
-// Evitamos el menú contextual del botón derecho
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
-// Función para disparar: se calcula la dirección desde el centro del jugador
-// hasta la posición del mouse (convertida a coordenadas del mundo) y se crea una bala.
 function shoot() {
     const weapon = player.weapons[player.currentWeapon];
-    if (weapon.isReloading || weapon.ammo <= 0) {
-        return;
-    }
+    if (weapon.isReloading || weapon.ammo <= 0) return;
     
-    // Calculamos la cámara (para convertir las coordenadas de la pantalla a las del mundo)
-    const cameraX = Math.floor(player.x - canvas.width / 2);
-    const cameraY = Math.floor(player.y - canvas.height / 2);
+    // Calculamos el ángulo de apuntado (relativo al centro de la pantalla)
+    let angle = Math.atan2(mouseY - canvas.height / 2, mouseX - canvas.width / 2);
     
-    // Coordenadas del centro del jugador (en el mundo)
+    // Centro del jugador (en el mundo)
     const playerCenterX = player.x + player.width / 2;
     const playerCenterY = player.y + player.height / 2;
     
-    // Convertimos la posición del mouse a coordenadas del mundo
-    const targetX = cameraX + mouseX;
-    const targetY = cameraY + mouseY;
+    // Desplazamiento hacia la izquierda (para tener el arma en el lado izquierdo del cuerpo)
+    const offsetDistance = player.width / 2; // 16 píxeles aproximadamente
+    let leftVecX = Math.cos(angle + Math.PI / 2);
+    let leftVecY = Math.sin(angle + Math.PI / 2);
     
-    // Calculamos el vector dirección
-    let dx = targetX - playerCenterX;
-    let dy = targetY - playerCenterY;
-    let length = Math.sqrt(dx * dx + dy * dy);
-    if (length === 0) return; // Evitar división por cero
-    dx /= length;
-    dy /= length;
+    // Posición del arma (en el mundo)
+    let weaponPosX = playerCenterX + leftVecX * offsetDistance;
+    let weaponPosY = playerCenterY + leftVecY * offsetDistance;
     
-    // Creamos la bala con parámetros según el arma actual
+    // Longitud del arma según tipo
+    let gunLength = (player.currentWeapon === "rifle") ? 32 : 16;
+    
+    // La bala sale desde la punta del arma:
+    let bulletSpawnX = weaponPosX + Math.cos(angle) * gunLength;
+    let bulletSpawnY = weaponPosY + Math.sin(angle) * gunLength;
+    
+    // Dirección del disparo (basada en el ángulo de apuntado)
+    let dx = Math.cos(angle);
+    let dy = Math.sin(angle);
+    
     let bullet = {
-        x: playerCenterX,
-        y: playerCenterY,
+        x: bulletSpawnX,
+        y: bulletSpawnY,
         dx: dx,
         dy: dy,
-        speed: 10,             // Velocidad de la bala
-        range: weapon.range,   // Alcance según arma
+        speed: 10,
+        range: weapon.range,
         traveled: 0,
-        color: player.currentWeapon === "rifle" ? "black" : "black"
+        color: "black" // Balas de color negro (puedes cambiarlo)
     };
     bullets.push(bullet);
     
-    // Consumir una bala y activar el estado de recarga
     weapon.ammo--;
     weapon.isReloading = true;
     setTimeout(() => {
         weapon.isReloading = false;
-        // En el revolver se recarga automáticamente al agotarse
         if (!weapon.autoReload && weapon.ammo <= 0) {
             weapon.ammo = weapon.magazine;
             console.log(weapon.name + " recargado.");
@@ -181,14 +174,13 @@ function shoot() {
     }, weapon.reloadTime);
 }
 
-// Función update: se actualiza la posición del jugador y se mueven las balas.
 function update() {
     if (keys["w"]) player.y -= player.speed;
     if (keys["s"]) player.y += player.speed;
     if (keys["a"]) player.x -= player.speed;
     if (keys["d"]) player.x += player.speed;
     
-    // Actualización de balas: se mueven y se eliminan cuando alcanzan su rango
+    // Actualizar proyectiles: se mueven y se eliminan al superar su rango
     for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
         b.x += b.dx * b.speed;
@@ -200,14 +192,31 @@ function update() {
     }
 }
 
-// Función draw: dibuja el mundo, el jugador, las balas, la línea de puntería (si aplica) y el HUD.
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    const cameraX = Math.floor(player.x - canvas.width / 2);
-    const cameraY = Math.floor(player.y - canvas.height / 2);
+    // Centro del jugador (en el mundo)
+    const playerCenterX = player.x + player.width / 2;
+    const playerCenterY = player.y + player.height / 2;
     
-    // Dibujamos el mundo (tiles y árboles)
+    // Calculamos el ángulo de apuntado (usamos la posición del mouse respecto al centro del canvas)
+    let angle = Math.atan2(mouseY - canvas.height / 2, mouseX - canvas.width / 2);
+    
+    // La cámara se centra en el jugador; si se apunta con el rifle, se desplaza hacia el objetivo.
+    let cameraCenterX, cameraCenterY;
+    if (isAiming && player.currentWeapon === "rifle") {
+        const offsetX = (mouseX - canvas.width / 2) * 0.5;
+        const offsetY = (mouseY - canvas.height / 2) * 0.5;
+        cameraCenterX = playerCenterX + offsetX;
+        cameraCenterY = playerCenterY + offsetY;
+    } else {
+        cameraCenterX = playerCenterX;
+        cameraCenterY = playerCenterY;
+    }
+    const cameraX = Math.floor(cameraCenterX - canvas.width / 2);
+    const cameraY = Math.floor(cameraCenterY - canvas.height / 2);
+    
+    // Dibujar el mundo (tiles y árboles)
     for (let y = 0; y < WORLD_HEIGHT; y++) {
         for (let x = 0; x < WORLD_WIDTH; x++) {
             const tileX = x * TILE_SIZE - cameraX;
@@ -226,7 +235,7 @@ function draw() {
         }
     }
     
-    // Dibujamos las balas
+    // Dibujar los proyectiles
     bullets.forEach(b => {
         const bulletScreenX = b.x - cameraX;
         const bulletScreenY = b.y - cameraY;
@@ -236,28 +245,39 @@ function draw() {
         ctx.fill();
     });
     
-    // Dibujamos al jugador
+    // Dibujar al jugador (rotado según el ángulo de apuntado)
+    ctx.save();
+    ctx.translate(playerCenterX - cameraX, playerCenterY - cameraY);
+    ctx.rotate(angle);
+    // Se dibuja el cuadrado del jugador centrado en (0,0)
     ctx.fillStyle = player.color;
-    ctx.fillRect(player.x - cameraX, player.y - cameraY, player.width, player.height);
+    ctx.fillRect(-player.width / 2, -player.height / 2, player.width, player.height);
+    ctx.restore();
     
-    // Si se está apuntando con el rifle, dibujamos la línea de puntería
+    // Dibujar el arma en el lado izquierdo del jugador
+    ctx.save();
+    // Calculamos la posición del arma: desde el centro del jugador se desplaza hacia la izquierda
+    const offsetDistance = player.width / 2; // Ajustable (aquí 16 px)
+    let leftVecX = Math.cos(angle + Math.PI / 2);
+    let leftVecY = Math.sin(angle + Math.PI / 2);
+    let weaponPosX = playerCenterX - cameraX + leftVecX * offsetDistance;
+    let weaponPosY = playerCenterY - cameraY + leftVecY * offsetDistance;
+    ctx.translate(weaponPosX, weaponPosY);
+    ctx.rotate(angle);
+    if (player.currentWeapon === "rifle") {
+        ctx.fillStyle = "brown"; // Rifle: rectángulo marrón de 32x4
+        ctx.fillRect(0, -2, 32, 4);
+    } else {
+        ctx.fillStyle = "black"; // Revolver: rectángulo negro de 16x4
+        ctx.fillRect(0, -2, 16, 4);
+    }
+    ctx.restore();
+    
+    // Si se está apuntando con el rifle, dibujar la línea de puntería
     if (isAiming && player.currentWeapon === "rifle") {
-        // Centro del jugador en coordenadas del mundo
-        const playerCenterX = player.x + player.width / 2;
-        const playerCenterY = player.y + player.height / 2;
-        // Convertir la posición del mouse a coordenadas del mundo
-        const targetX = cameraX + mouseX;
-        const targetY = cameraY + mouseY;
-        let dx = targetX - playerCenterX;
-        let dy = targetY - playerCenterY;
-        let len = Math.sqrt(dx * dx + dy * dy);
-        if (len === 0) len = 1;
-        dx /= len;
-        dy /= len;
-        // Punto final de la línea, limitado al alcance del arma
         const weaponRange = player.weapons[player.currentWeapon].range;
-        const aimEndX = playerCenterX + dx * weaponRange;
-        const aimEndY = playerCenterY + dy * weaponRange;
+        const aimEndX = playerCenterX + Math.cos(angle) * weaponRange;
+        const aimEndY = playerCenterY + Math.sin(angle) * weaponRange;
         ctx.strokeStyle = "rgba(255, 255, 0, 0.7)";
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 5]);
@@ -268,11 +288,10 @@ function draw() {
         ctx.setLineDash([]);
     }
     
-    // Dibujamos el HUD minimalista
+    // Dibujar el HUD minimalista
     drawHUD();
 }
 
-// Función para dibujar el HUD (nombre del arma y munición)
 function drawHUD() {
     const weapon = player.weapons[player.currentWeapon];
     ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
