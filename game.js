@@ -4,12 +4,14 @@ const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
+// Parámetros del mundo
 const TILE_SIZE = 32;
 const WORLD_WIDTH = 500;
 const WORLD_HEIGHT = 500;
 const world = [];
 const objects = [];
 
+// Definición de biomas
 const BIOMES = {
     "dirt": { color: "#78451A" },
     "grass1": { color: "#4A8A22" },
@@ -47,12 +49,92 @@ function generateWorld() {
 }
 generateWorld();
 
-// Variables para proyectiles y puntería
+// ====================
+// Sistema de Animales
+// ====================
+let animals = [];
+let killCount = 0; // Recuento de animales cazados
+
+const animalTypes = {
+    // Ciervo: no agresivo, requiere 3 disparos para matar, se dibuja en marrón claro.
+    deer: {
+        health: 3,
+        aggressive: false,
+        color: "saddlebrown",
+        width: 28,
+        height: 28,
+        speed: 0.2
+    },
+    // Jabalí: agresivo, requiere 2 disparos, ataca y quita 10 puntos de vida.
+    boar: {
+        health: 2,
+        aggressive: true,
+        damage: 10,
+        color: "darkslategray",
+        width: 30,
+        height: 30,
+        speed: 0.8,
+        attackRange: 50,
+        attackCooldown: 2000 // en milisegundos
+    },
+    // Conejo: muy frágil (1 disparo), no agresivo.
+    rabbit: {
+        health: 1,
+        aggressive: false,
+        color: "white",
+        width: 20,
+        height: 20,
+        speed: 0.3
+    }
+};
+
+function spawnAnimals(count = 20) {
+    // Se intenta generar 'count' animales en posiciones aleatorias lejos del jugador
+    for (let i = 0; i < count; i++) {
+        const types = Object.keys(animalTypes);
+        const type = types[Math.floor(Math.random() * types.length)];
+        const props = animalTypes[type];
+        let spawnX, spawnY, distance;
+        do {
+            spawnX = Math.random() * (WORLD_WIDTH * TILE_SIZE);
+            spawnY = Math.random() * (WORLD_HEIGHT * TILE_SIZE);
+            // Calculamos la distancia respecto a la posición inicial del jugador
+            const playerInitX = Math.floor(WORLD_WIDTH / 2) * TILE_SIZE + 16;
+            const playerInitY = Math.floor(WORLD_HEIGHT / 2) * TILE_SIZE + 16;
+            distance = Math.hypot(spawnX - playerInitX, spawnY - playerInitY);
+        } while (distance < 300); // No se spawnean en un radio de 300px alrededor del jugador
+        animals.push({
+            type: type,
+            x: spawnX,
+            y: spawnY,
+            width: props.width,
+            height: props.height,
+            health: props.health,
+            maxHealth: props.health,
+            aggressive: props.aggressive,
+            color: props.color,
+            speed: props.speed,
+            lastAttackTime: 0,
+            attackRange: props.attackRange || 0,
+            attackCooldown: props.attackCooldown || 0,
+            // Para animales no agresivos, se asigna un comportamiento de vagabundeo.
+            wanderDir: Math.random() * 2 * Math.PI,
+            wanderTimer: Math.floor(Math.random() * 120) + 60
+        });
+    }
+}
+spawnAnimals();
+
+// ====================
+// Variables de Proyectiles y Puntería
+// ====================
 let bullets = [];
 let mouseX = 0, mouseY = 0;
 let isAiming = false;  // Se activa al presionar el botón derecho
 
-// Definición del jugador y sus armas
+// ====================
+// Definición del Jugador, sus Armas y Sistema de Salud
+// ====================
 const player = {
     x: Math.floor(WORLD_WIDTH / 2) * TILE_SIZE,
     y: Math.floor(WORLD_HEIGHT / 2) * TILE_SIZE,
@@ -60,6 +142,8 @@ const player = {
     height: 32,
     speed: 4,
     color: "red",
+    health: 100,
+    maxHealth: 100,
     weapons: {
         rifle: {
             name: "Rifle de caza",
@@ -67,8 +151,8 @@ const player = {
             ammo: 5,
             reloadTime: 1000,  // 1 segundo
             isReloading: false,
-            range: 500,        // Largo alcance
-            autoReload: true   // Cada disparo requiere recarga (espera entre disparos)
+            range: 500,
+            autoReload: true
         },
         revolver: {
             name: "Revolver",
@@ -76,18 +160,19 @@ const player = {
             ammo: 8,
             reloadTime: 1500,  // 1.5 segundos
             isReloading: false,
-            range: 200,        // Corto alcance
-            autoReload: false  // Se recarga solo al agotarse la munición
+            range: 200,
+            autoReload: false
         }
     },
     currentWeapon: "rifle"
 };
 
-// Manejo de teclado
+// ====================
+// Manejo de Eventos
+// ====================
 const keys = {};
 window.addEventListener("keydown", (e) => {
     keys[e.key] = true;
-    // Cambiar arma: "1" para rifle, "2" para revolver
     if (e.key === "1") {
         player.currentWeapon = "rifle";
     } else if (e.key === "2") {
@@ -96,16 +181,12 @@ window.addEventListener("keydown", (e) => {
 });
 window.addEventListener("keyup", (e) => keys[e.key] = false);
 
-// Actualizar posición del mouse (coordenadas de pantalla)
 canvas.addEventListener("mousemove", (e) => {
     const rect = canvas.getBoundingClientRect();
     mouseX = e.clientX - rect.left;
     mouseY = e.clientY - rect.top;
 });
 
-// Manejo de disparo y puntería:
-// - Botón izquierdo para disparar
-// - Botón derecho para activar/desactivar modo apuntar
 canvas.addEventListener("mousedown", (e) => {
     if (e.button === 0) { // Izquierdo: disparar
         shoot();
@@ -120,6 +201,9 @@ canvas.addEventListener("mouseup", (e) => {
 });
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
+// ====================
+// Función de Disparo
+// ====================
 function shoot() {
     const weapon = player.weapons[player.currentWeapon];
     if (weapon.isReloading || weapon.ammo <= 0) return;
@@ -131,23 +215,19 @@ function shoot() {
     const playerCenterX = player.x + player.width / 2;
     const playerCenterY = player.y + player.height / 2;
     
-    // Desplazamiento hacia la izquierda (para tener el arma en el lado izquierdo del cuerpo)
-    const offsetDistance = player.width / 2; // 16 píxeles aproximadamente
+    // El arma se dibuja en el lado izquierdo del jugador.
+    const offsetDistance = player.width / 2; // Aproximadamente 16 píxeles
     let leftVecX = Math.cos(angle + Math.PI / 2);
     let leftVecY = Math.sin(angle + Math.PI / 2);
-    
-    // Posición del arma (en el mundo)
+    // Posición del arma
     let weaponPosX = playerCenterX + leftVecX * offsetDistance;
     let weaponPosY = playerCenterY + leftVecY * offsetDistance;
     
-    // Longitud del arma según tipo
+    // Longitud del arma según el tipo (para que la bala salga de la punta)
     let gunLength = (player.currentWeapon === "rifle") ? 32 : 16;
-    
-    // La bala sale desde la punta del arma:
     let bulletSpawnX = weaponPosX + Math.cos(angle) * gunLength;
     let bulletSpawnY = weaponPosY + Math.sin(angle) * gunLength;
     
-    // Dirección del disparo (basada en el ángulo de apuntado)
     let dx = Math.cos(angle);
     let dy = Math.sin(angle);
     
@@ -159,7 +239,7 @@ function shoot() {
         speed: 10,
         range: weapon.range,
         traveled: 0,
-        color: "black" // Balas de color negro (puedes cambiarlo)
+        color: "black"
     };
     bullets.push(bullet);
     
@@ -174,13 +254,21 @@ function shoot() {
     }, weapon.reloadTime);
 }
 
+// ====================
+// Actualización
+// ====================
 function update() {
+    // Movimiento del jugador
     if (keys["w"]) player.y -= player.speed;
     if (keys["s"]) player.y += player.speed;
     if (keys["a"]) player.x -= player.speed;
     if (keys["d"]) player.x += player.speed;
     
-    // Actualizar proyectiles: se mueven y se eliminan al superar su rango
+    // Evitar que el jugador se salga del mapa
+    player.x = Math.max(0, Math.min(player.x, WORLD_WIDTH * TILE_SIZE - player.width));
+    player.y = Math.max(0, Math.min(player.y, WORLD_HEIGHT * TILE_SIZE - player.height));
+    
+    // Actualizar proyectiles
     for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
         b.x += b.dx * b.speed;
@@ -190,8 +278,67 @@ function update() {
             bullets.splice(i, 1);
         }
     }
+    
+    // Actualizar animales
+    animals.forEach((animal, index) => {
+        const playerCenterX = player.x + player.width / 2;
+        const playerCenterY = player.y + player.height / 2;
+        const dx = playerCenterX - animal.x;
+        const dy = playerCenterY - animal.y;
+        const dist = Math.hypot(dx, dy);
+        
+        if (animal.aggressive) {
+            // Si el animal está dentro del rango de ataque, ataca
+            if (dist < animal.attackRange) {
+                const now = Date.now();
+                if (now - animal.lastAttackTime > animal.attackCooldown) {
+                    animal.lastAttackTime = now;
+                    player.health -= animal.damage || 10;
+                    console.log("¡Atacado por " + animal.type + "! Salud restante: " + player.health);
+                    if (player.health < 0) player.health = 0;
+                }
+            } else {
+                // Se mueve hacia el jugador
+                animal.x += (dx / dist) * animal.speed;
+                animal.y += (dy / dist) * animal.speed;
+            }
+        } else {
+            // Animales no agresivos: movimiento de vagabundeo
+            animal.x += Math.cos(animal.wanderDir) * animal.speed;
+            animal.y += Math.sin(animal.wanderDir) * animal.speed;
+            animal.wanderTimer--;
+            if (animal.wanderTimer <= 0) {
+                animal.wanderDir = Math.random() * 2 * Math.PI;
+                animal.wanderTimer = Math.floor(Math.random() * 120) + 60;
+            }
+        }
+    });
+    
+    // Colisiones entre balas y animales
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        let b = bullets[i];
+        animals.forEach((animal, aIndex) => {
+            if (
+                b.x > animal.x &&
+                b.x < animal.x + animal.width &&
+                b.y > animal.y &&
+                b.y < animal.y + animal.height
+            ) {
+                animal.health -= 1;
+                bullets.splice(i, 1);
+                if (animal.health <= 0) {
+                    animals.splice(aIndex, 1);
+                    killCount++;
+                    console.log("Mataste a un " + animal.type);
+                }
+            }
+        });
+    }
 }
 
+// ====================
+// Dibujar
+// ====================
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
@@ -199,7 +346,7 @@ function draw() {
     const playerCenterX = player.x + player.width / 2;
     const playerCenterY = player.y + player.height / 2;
     
-    // Calculamos el ángulo de apuntado (usamos la posición del mouse respecto al centro del canvas)
+    // Calculamos el ángulo de apuntado (usando la posición del mouse respecto al centro del canvas)
     let angle = Math.atan2(mouseY - canvas.height / 2, mouseX - canvas.width / 2);
     
     // La cámara se centra en el jugador; si se apunta con el rifle, se desplaza hacia el objetivo.
@@ -235,7 +382,18 @@ function draw() {
         }
     }
     
-    // Dibujar los proyectiles
+    // Dibujar animales
+    animals.forEach(animal => {
+        const screenX = animal.x - cameraX;
+        const screenY = animal.y - cameraY;
+        ctx.fillStyle = animal.color;
+        ctx.fillRect(screenX, screenY, animal.width, animal.height);
+        // Barra de salud sobre el animal
+        ctx.fillStyle = "red";
+        ctx.fillRect(screenX, screenY - 5, (animal.health / animal.maxHealth) * animal.width, 3);
+    });
+    
+    // Dibujar proyectiles
     bullets.forEach(b => {
         const bulletScreenX = b.x - cameraX;
         const bulletScreenY = b.y - cameraY;
@@ -249,15 +407,14 @@ function draw() {
     ctx.save();
     ctx.translate(playerCenterX - cameraX, playerCenterY - cameraY);
     ctx.rotate(angle);
-    // Se dibuja el cuadrado del jugador centrado en (0,0)
+    // Dibujar el cuerpo del jugador (cuadrado centrado)
     ctx.fillStyle = player.color;
     ctx.fillRect(-player.width / 2, -player.height / 2, player.width, player.height);
     ctx.restore();
     
     // Dibujar el arma en el lado izquierdo del jugador
     ctx.save();
-    // Calculamos la posición del arma: desde el centro del jugador se desplaza hacia la izquierda
-    const offsetDistance = player.width / 2; // Ajustable (aquí 16 px)
+    const offsetDistance = player.width / 2; // Desplazamiento para posicionar el arma a la izquierda
     let leftVecX = Math.cos(angle + Math.PI / 2);
     let leftVecY = Math.sin(angle + Math.PI / 2);
     let weaponPosX = playerCenterX - cameraX + leftVecX * offsetDistance;
@@ -288,18 +445,33 @@ function draw() {
         ctx.setLineDash([]);
     }
     
-    // Dibujar el HUD minimalista
+    // Dibujar el HUD
     drawHUD();
 }
 
+// ====================
+// Dibujar HUD Mejorado
+// ====================
 function drawHUD() {
-    const weapon = player.weapons[player.currentWeapon];
-    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-    ctx.fillRect(10, 10, 220, 50);
+    const hudX = 10, hudY = 10, hudWidth = 260, hudHeight = 80;
+    // Crear un degradado para el fondo del HUD
+    const gradient = ctx.createLinearGradient(hudX, hudY, hudX + hudWidth, hudY);
+    gradient.addColorStop(0, "#333");
+    gradient.addColorStop(1, "#555");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(hudX, hudY, hudWidth, hudHeight);
+    
+    ctx.strokeStyle = "white";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(hudX, hudY, hudWidth, hudHeight);
+    
     ctx.fillStyle = "white";
-    ctx.font = "16px Arial";
-    ctx.fillText("Arma: " + weapon.name, 20, 30);
-    ctx.fillText("Munición: " + weapon.ammo + " / " + weapon.magazine, 20, 50);
+    ctx.font = "16px 'Pixelify Sans', sans-serif"; // Fuente mejorada
+    const weapon = player.weapons[player.currentWeapon];
+    ctx.fillText("Arma: " + weapon.name, hudX + 10, hudY + 20);
+    ctx.fillText("Munición: " + weapon.ammo + " / " + weapon.magazine, hudX + 10, hudY + 40);
+    ctx.fillText("Salud: " + player.health + " / " + player.maxHealth, hudX + 10, hudY + 60);
+    ctx.fillText("Cacerías: " + killCount, hudX + 150, hudY + 20);
 }
 
 function gameLoop() {
