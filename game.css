@@ -2,7 +2,19 @@ body {
     margin: 0;
     overflow: hidden;
     background: black;
-}
-canvas {
+  }
+  canvas {
     display: block;
-}
+  }
+  /* Efecto CRT (scanlines) */
+  body::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: url('crt-scanlines.png');
+    opacity: 0.1;
+    pointer-events: none;
+  }
