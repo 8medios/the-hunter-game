@@ -20,41 +20,89 @@ const canvas = document.getElementById("gameCanvas");
     noise.seed(Math.random());
 
     function generateWorld() {
-      const scale = 50;  // A mayor escala, las regiones son más grandes.
+      const scale = 50;
       for (let y = 0; y < WORLD_HEIGHT; y++) {
         world[y] = [];
         objects[y] = [];
         for (let x = 0; x < WORLD_WIDTH; x++) {
           let n = noise.perlin2(x / scale, y / scale);
           let biome;
-          if (n < -0.3) {
-            biome = "dirt";
-          } else if (n < 0) {
-            biome = "grass1";
-          } else if (n < 0.3) {
-            biome = "grass2";
-          } else {
-            biome = "forest";
-          }
+          if (n < -0.3) biome = "dirt";
+          else if (n < 0) biome = "grass1";
+          else if (n < 0.3) biome = "grass2";
+          else biome = "forest";
           world[y][x] = BIOMES[biome];
-          if (biome === "forest" && Math.random() < 0.05) {
-            objects[y][x] = "tree";
-          } else {
-            objects[y][x] = null;
-          }
+          objects[y][x] = (biome === "forest" && Math.random() < 0.05) ? "tree" : null;
         }
       }
     }
     generateWorld();
 
     // ====================
+    // Variables para ciclo día/noche y dificultad
+    // ====================
+    const cycleDuration = 600000; // 10 minutos en total (5 de día, 5 de noche)
+    let currentBrightness = 1;    // 1 = día, ~0.3 = noche
+    let currentPhase = "day";     // "day" o "night"
+    let lastCyclePhase = "";
+    let fullMoon = false;         // Activa si dayCount % 5 === 0
+    let dayCount = 1;             // Contador de días, inicia en 1
+    let gameTimeStr = "";         // Reloj del juego (hora)
+    
+    let dayIncremented = false;  // Variable para evitar múltiples incrementos en el mismo ciclo
+
+    function updateDayNight() {
+        const now = Date.now();
+        // Valor de 0 a 1 en un ciclo de cycleDuration (10 min)
+        let timeCycle = (now % cycleDuration) / cycleDuration;
+  
+        // Desplazamiento de 6 horas: timeCycle=0 → 6:00 AM
+        // totalHours irá de 6 a 30, y con %24 se queda en [0..24)
+        let totalHours = ((timeCycle * 24) + 6) % 24;
+  
+        // Definir el brillo con coseno, usando timeCycle + offset
+        // (Opcional) Queremos que a las 6 AM sea brillo máximo:
+        // definimos un shift de + 0.25 para alinear la curva cos.
+        // Aun así, lo ajustamos para tener una transición suave.
+        let shifted = (timeCycle + 0.25) % 1; 
+        currentBrightness = 0.65 + 0.35 * Math.cos(2 * Math.PI * shifted);
+  
+        // Determinar la fase (día de 6 a 18, noche resto)
+        if (totalHours >= 6 && totalHours < 18) {
+          currentPhase = "day";
+        } else {
+          currentPhase = "night";
+        }
+  
+        // Comprobamos si hemos pasado por la medianoche (totalHours cerca de 0)
+        // Si totalHours < 0.1 => incrementa día una vez
+        if (totalHours < 0.1 && !dayIncremented) {
+          dayCount++;
+          dayIncremented = true;
+        } else if (totalHours >= 0.1) {
+          dayIncremented = false;
+        }
+  
+        // Luna llena cada 5 días
+        fullMoon = (dayCount % 5 === 0);
+  
+        // Calcular el reloj del juego (12h AM/PM)
+        let gameHour = Math.floor(totalHours);
+        let gameMinute = Math.floor((totalHours - gameHour) * 60);
+        let displayHour = gameHour % 12;
+        if (displayHour === 0) displayHour = 12;
+        let period = (gameHour < 12) ? "AM" : "PM";
+        let minuteStr = gameMinute < 10 ? "0" + gameMinute : gameMinute;
+        gameTimeStr = displayHour + ":" + minuteStr + " " + period;
+      }
+    
+    // ====================
     // Sistema de Animales y Recuento de Cacerías
     // ====================
     let animals = [];
-    let killCount = 0; // Contador de animales cazados
+    let killCount = 0;
 
     const animalTypes = {
-      // Ciervo: no agresivo, requiere 3 disparos para matar
       deer: {
         health: 3,
         aggressive: false,
@@ -63,7 +111,6 @@ const canvas = document.getElementById("gameCanvas");
         height: 28,
         speed: 0.2
       },
-      // Jabalí: agresivo, requiere 2 disparos y ataca al jugador
       boar: {
         health: 2,
         aggressive: true,
@@ -73,9 +120,8 @@ const canvas = document.getElementById("gameCanvas");
         height: 30,
         speed: 0.8,
         attackRange: 50,
-        attackCooldown: 2000 // ms (ya no se usará para daño continuo)
+        attackCooldown: 2000
       },
-      // Conejo: muy frágil (1 disparo), no agresivo
       rabbit: {
         health: 1,
         aggressive: false,
@@ -86,7 +132,19 @@ const canvas = document.getElementById("gameCanvas");
       }
     };
 
-    // Guardamos velocidad y daño base para ajustar en función del ciclo
+    // Nuevo enemigo para luna llena: wolf
+    const wolfType = {
+      health: 4,
+      aggressive: true,
+      damage: 20,
+      color: "gray",
+      width: 30,
+      height: 30,
+      speed: 1.2,
+      attackRange: 60,
+      attackCooldown: 0
+    };
+
     function spawnAnimals(count = 20) {
       for (let i = 0; i < count; i++) {
         const types = Object.keys(animalTypes);
@@ -99,7 +157,7 @@ const canvas = document.getElementById("gameCanvas");
           const playerInitX = Math.floor(WORLD_WIDTH / 2) * TILE_SIZE + 16;
           const playerInitY = Math.floor(WORLD_HEIGHT / 2) * TILE_SIZE + 16;
           distance = Math.hypot(spawnX - playerInitX, spawnY - playerInitY);
-        } while (distance < 300); // No cerca del jugador
+        } while (distance < 300);
         animals.push({
           type: type,
           x: spawnX,
@@ -111,31 +169,64 @@ const canvas = document.getElementById("gameCanvas");
           aggressive: props.aggressive,
           color: props.color,
           speed: props.speed,
-          baseSpeed: props.speed, // velocidad base
-          baseDamage: props.damage || 0, // daño base (para agresivos)
+          baseSpeed: props.speed,
+          baseDamage: props.damage || 0,
           lastAttackTime: 0,
           attackRange: props.attackRange || 0,
           attackCooldown: props.attackCooldown || 0,
-          // Movimiento de vagabundeo
           wanderDir: Math.random() * 2 * Math.PI,
           wanderTimer: Math.floor(Math.random() * 120) + 60
         });
       }
     }
-    // Aumentamos el spawn inicial
     spawnAnimals(60);
+
+    // Función para spawnear enemigos nuevos (wolves) en luna llena
+    let lastWolfSpawnTime = 0;
+    const wolfSpawnInterval = 15000; // cada 15 segundos
+    function spawnWolves(count = 5) {
+      for (let i = 0; i < count; i++) {
+        let spawnX, spawnY, distance;
+        do {
+          spawnX = Math.random() * (WORLD_WIDTH * TILE_SIZE);
+          spawnY = Math.random() * (WORLD_HEIGHT * TILE_SIZE);
+          const playerInitX = Math.floor(WORLD_WIDTH / 2) * TILE_SIZE + 16;
+          const playerInitY = Math.floor(WORLD_HEIGHT / 2) * TILE_SIZE + 16;
+          distance = Math.hypot(spawnX - playerInitX, spawnY - playerInitY);
+        } while (distance < 300);
+        animals.push({
+          type: "wolf",
+          x: spawnX,
+          y: spawnY,
+          width: wolfType.width,
+          height: wolfType.height,
+          health: wolfType.health,
+          maxHealth: wolfType.health,
+          aggressive: wolfType.aggressive,
+          color: wolfType.color,
+          speed: wolfType.speed,
+          baseSpeed: wolfType.speed,
+          baseDamage: wolfType.damage,
+          lastAttackTime: 0,
+          attackRange: wolfType.attackRange,
+          attackCooldown: wolfType.attackCooldown,
+          wanderDir: Math.random() * 2 * Math.PI,
+          wanderTimer: Math.floor(Math.random() * 120) + 60
+        });
+      }
+    }
 
     // Variables para spawn periódico
     let lastSpawnTime = Date.now();
     const spawnInterval = 5000; // cada 5 segundos
-    const maxAnimals = 200; // máximo animales en el mundo
+    const maxAnimals = 200;
 
     // ====================
     // Variables de Proyectiles y Puntería
     // ====================
     let bullets = [];
     let mouseX = 0, mouseY = 0;
-    let isAiming = false;  // Se activa con botón derecho
+    let isAiming = false;
 
     // ====================
     // Definición del Jugador, Armas y Sistema de Salud
@@ -154,7 +245,7 @@ const canvas = document.getElementById("gameCanvas");
           name: "Rifle de caza",
           magazine: 5,
           ammo: 5,
-          reloadTime: 1000,  // ms
+          reloadTime: 1000,
           isReloading: false,
           range: 500,
           autoReload: true
@@ -163,7 +254,7 @@ const canvas = document.getElementById("gameCanvas");
           name: "Revolver",
           magazine: 8,
           ammo: 8,
-          reloadTime: 1500,  // ms
+          reloadTime: 1500,
           isReloading: false,
           range: 200,
           autoReload: false
@@ -172,31 +263,7 @@ const canvas = document.getElementById("gameCanvas");
       currentWeapon: "rifle"
     };
 
-    // Variable para controlar el estado de "Game Over"
     let gameOver = false;
-
-    // ====================
-    // Ciclo Día/Noche y Contador de Días
-    // ====================
-    const cycleDuration = 600000; // 10 minutos en total (5 de día, 5 de noche)
-    let currentBrightness = 1;    // Brillo actual (1 = día, ~0.3 = noche)
-    let dayCount = 0;
-    let lastCyclePhase = null;    // "day" o "night"
-
-    function updateDayNight() {
-      const now = Date.now();
-      const timeCycle = (now % cycleDuration) / cycleDuration; // valor 0 a 1
-      // Usamos una función coseno para suavizar la transición: 
-      // Cuando timeCycle = 0 o 1 → cos(0)=1 → brillo=1, y cuando timeCycle = 0.5 → cos(pi)= -1 → brillo=0.3
-      currentBrightness = 0.65 + 0.35 * Math.cos(2 * Math.PI * timeCycle);
-      // Determinar fase: día si timeCycle < 0.5, noche si >= 0.5.
-      let phase = (timeCycle < 0.5) ? "day" : "night";
-      // Incrementar contador de días al inicio del día
-      if (phase === "day" && lastCyclePhase !== "day") {
-        dayCount++;
-      }
-      lastCyclePhase = phase;
-    }
 
     // ====================
     // Manejo de Eventos
@@ -219,9 +286,9 @@ const canvas = document.getElementById("gameCanvas");
     });
 
     canvas.addEventListener("mousedown", (e) => {
-      if (e.button === 0) { // Izquierdo: disparar
+      if (e.button === 0) {
         shoot();
-      } else if (e.button === 2) { // Derecho: activar puntería
+      } else if (e.button === 2) {
         isAiming = true;
       }
     });
@@ -238,7 +305,6 @@ const canvas = document.getElementById("gameCanvas");
     function shoot() {
       const weapon = player.weapons[player.currentWeapon];
       if (weapon.isReloading || weapon.ammo <= 0 || gameOver) return;
-
       let angle = Math.atan2(mouseY - canvas.height / 2, mouseX - canvas.width / 2);
       const playerCenterX = player.x + player.width / 2;
       const playerCenterY = player.y + player.height / 2;
@@ -278,7 +344,7 @@ const canvas = document.getElementById("gameCanvas");
     // Actualización
     // ====================
     function update() {
-      updateDayNight(); // Actualiza el ciclo día/noche y brillo
+      updateDayNight();
 
       if (gameOver) return;
 
@@ -287,11 +353,9 @@ const canvas = document.getElementById("gameCanvas");
       if (keys["a"]) player.x -= player.speed;
       if (keys["d"]) player.x += player.speed;
 
-      // Limitar al jugador dentro del mapa
       player.x = Math.max(0, Math.min(player.x, WORLD_WIDTH * TILE_SIZE - player.width));
       player.y = Math.max(0, Math.min(player.y, WORLD_HEIGHT * TILE_SIZE - player.height));
 
-      // Actualizar proyectiles
       for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
         b.x += b.dx * b.speed;
@@ -302,14 +366,19 @@ const canvas = document.getElementById("gameCanvas");
         }
       }
 
-      // Spawn periódico de animales (más si es noche)
       if (Date.now() - lastSpawnTime > spawnInterval && animals.length < maxAnimals) {
         let spawnCount = (currentBrightness < 0.5) ? 15 : 10;
         spawnAnimals(spawnCount);
         lastSpawnTime = Date.now();
       }
+      if (currentPhase === "night" && fullMoon && Date.now() - lastWolfSpawnTime > wolfSpawnInterval && animals.length < maxAnimals) {
+        spawnWolves(5);
+        lastWolfSpawnTime = Date.now();
+      }
 
-      // Actualizar animales
+      let difficultyMultiplier = 1 + (dayCount - 1) * 0.1;
+      if (currentPhase === "night" && fullMoon) difficultyMultiplier *= 1.5;
+
       animals.forEach((animal) => {
         const playerCenterX = player.x + player.width / 2;
         const playerCenterY = player.y + player.height / 2;
@@ -317,11 +386,10 @@ const canvas = document.getElementById("gameCanvas");
         const dy = playerCenterY - animal.y;
         const dist = Math.hypot(dx, dy);
         if (animal.aggressive) {
-          // Ajustar velocidad y daño en la noche
-          animal.speed = animal.baseSpeed * (currentBrightness < 0.5 ? 1.5 : 1);
-          animal.damage = animal.baseDamage * (currentBrightness < 0.5 ? 1.5 : 1);
+          animal.speed = animal.baseSpeed * difficultyMultiplier;
+          animal.damage = animal.baseDamage * difficultyMultiplier;
           if (dist < animal.attackRange) {
-            // Ataque continuo: se resta daño proporcional (asumimos ~60 FPS)
+            // Ataque continuo: daño por frame (asumiendo ~60 FPS)
             player.health -= animal.damage / 60;
             if (player.health <= 0) {
               player.health = 0;
@@ -332,7 +400,6 @@ const canvas = document.getElementById("gameCanvas");
             animal.y += (dy / dist) * animal.speed;
           }
         } else {
-          // Movimiento de vagabundeo
           animal.x += Math.cos(animal.wanderDir) * animal.speed;
           animal.y += Math.sin(animal.wanderDir) * animal.speed;
           animal.wanderTimer--;
@@ -343,7 +410,6 @@ const canvas = document.getElementById("gameCanvas");
         }
       });
 
-      // Colisiones entre animales (resolución simple)
       for (let i = 0; i < animals.length; i++) {
         for (let j = i + 1; j < animals.length; j++) {
           let a = animals[i], b = animals[j];
@@ -377,7 +443,6 @@ const canvas = document.getElementById("gameCanvas");
         }
       }
 
-      // Colisiones entre balas y animales
       for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
         animals.forEach((animal, aIndex) => {
@@ -409,6 +474,37 @@ const canvas = document.getElementById("gameCanvas");
     }
 
     // ====================
+    // Actualizar Día/Noche y Reloj del Juego
+    // ====================
+    function updateDayNight() {
+        const now = Date.now();
+        const timeCycle = (now % cycleDuration) / cycleDuration; // 0 a 1
+        currentBrightness = 0.65 + 0.35 * Math.cos(2 * Math.PI * timeCycle);
+        currentPhase = (timeCycle < 0.5) ? "day" : "night";
+        
+        if (currentPhase === "day" && lastCyclePhase !== "day") {
+            dayCount++;
+        }
+        
+        lastCyclePhase = currentPhase;
+        fullMoon = (dayCount % 5 === 0);
+        
+        // Calcular reloj del juego (24 horas distribuidas en el ciclo)
+        const totalHours = timeCycle * 24;
+        const gameHour = Math.floor(totalHours);
+        const gameMinute = Math.floor((totalHours - gameHour) * 60);
+        
+        let displayHour = gameHour % 12;
+        if (displayHour === 0) displayHour = 12;
+        
+        // Corregir la lógica de AM/PM
+        const period = (gameHour < 12) ? "AM" : "PM";
+        
+        const minuteStr = gameMinute < 10 ? "0" + gameMinute : gameMinute;
+        gameTimeStr = displayHour + ":" + minuteStr + " " + period;
+    }
+
+    // ====================
     // Dibujar
     // ====================
     function draw() {
@@ -418,7 +514,6 @@ const canvas = document.getElementById("gameCanvas");
       const playerCenterY = player.y + player.height / 2;
       let angle = Math.atan2(mouseY - canvas.height / 2, mouseX - canvas.width / 2);
 
-      // Cámara que sigue al jugador; si se apunta con el rifle, se desplaza hacia el objetivo
       let cameraCenterX, cameraCenterY;
       if (isAiming && player.currentWeapon === "rifle") {
         const offsetX = (mouseX - canvas.width / 2) * 0.5;
@@ -432,7 +527,6 @@ const canvas = document.getElementById("gameCanvas");
       const cameraX = Math.floor(cameraCenterX - canvas.width / 2);
       const cameraY = Math.floor(cameraCenterY - canvas.height / 2);
 
-      // Dibujar mundo (tiles y árboles)
       for (let y = 0; y < WORLD_HEIGHT; y++) {
         for (let x = 0; x < WORLD_WIDTH; x++) {
           const tileX = x * TILE_SIZE - cameraX;
@@ -451,18 +545,15 @@ const canvas = document.getElementById("gameCanvas");
         }
       }
 
-      // Dibujar animales
       animals.forEach(animal => {
         const screenX = animal.x - cameraX;
         const screenY = animal.y - cameraY;
         ctx.fillStyle = animal.color;
         ctx.fillRect(screenX, screenY, animal.width, animal.height);
-        // Barra de salud sobre el animal
         ctx.fillStyle = "red";
         ctx.fillRect(screenX, screenY - 5, (animal.health / animal.maxHealth) * animal.width, 3);
       });
 
-      // Dibujar proyectiles
       bullets.forEach(b => {
         const bulletScreenX = b.x - cameraX;
         const bulletScreenY = b.y - cameraY;
@@ -472,7 +563,6 @@ const canvas = document.getElementById("gameCanvas");
         ctx.fill();
       });
 
-      // Dibujar al jugador (rotado según el ángulo)
       ctx.save();
       ctx.translate(playerCenterX - cameraX, playerCenterY - cameraY);
       ctx.rotate(angle);
@@ -480,7 +570,6 @@ const canvas = document.getElementById("gameCanvas");
       ctx.fillRect(-player.width / 2, -player.height / 2, player.width, player.height);
       ctx.restore();
 
-      // Dibujar el arma en el lado izquierdo del jugador
       ctx.save();
       const offsetDistance = player.width / 2;
       let leftVecX = Math.cos(angle + Math.PI / 2);
@@ -498,7 +587,6 @@ const canvas = document.getElementById("gameCanvas");
       }
       ctx.restore();
 
-      // Línea de puntería (solo para rifle en modo apuntar)
       if (isAiming && player.currentWeapon === "rifle") {
         const weaponRange = player.weapons[player.currentWeapon].range;
         const aimEndX = playerCenterX + Math.cos(angle) * weaponRange;
@@ -513,16 +601,13 @@ const canvas = document.getElementById("gameCanvas");
         ctx.setLineDash([]);
       }
 
-      // Overlay para el ciclo noche (oscurece y añade tinte azul)
       if (currentBrightness < 1) {
         ctx.fillStyle = "rgba(0, 0, 64, " + (1 - currentBrightness) + ")";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
-      // Dibujar el HUD
       drawHUD();
 
-      // Mostrar "Game Over" si el jugador murió
       if (gameOver) {
         ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -531,65 +616,33 @@ const canvas = document.getElementById("gameCanvas");
         ctx.textAlign = "center";
         ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 20);
         ctx.font = "24px 'Press Start 2P', monospace";
-        ctx.fillText("Cacerías: " + killCount, canvas.width / 2, canvas.height / 2 + 20);
+        ctx.fillText("Cacerías: " + killCount + " | Días: " + dayCount, canvas.width / 2, canvas.height / 2 + 20);
       }
     }
 
-    // ====================
-    // Dibujar HUD (Estilo "Squirrel Stapler" mejorado)
-    // ====================
     function drawHUD() {
-      const hudX = 10, hudY = 10, hudWidth = 320, hudHeight = 140;
-      // Fondo degradado
-      const gradient = ctx.createLinearGradient(hudX, hudY, hudX + hudWidth, hudY);
-      gradient.addColorStop(0, "#1a1a1a");
-      gradient.addColorStop(1, "#333333");
-      ctx.fillStyle = gradient;
-      ctx.fillRect(hudX, hudY, hudWidth, hudHeight);
-      
-      // Borde retro
-      ctx.strokeStyle = "#ffcc00";
-      ctx.lineWidth = 4;
-      ctx.strokeRect(hudX, hudY, hudWidth, hudHeight);
-      
-      // Configurar la fuente "Press Start 2P"
+      // Textos en la esquina superior izquierda
+      ctx.textAlign = "left";
       ctx.fillStyle = "#ffcc00";
       ctx.font = "12px 'Press Start 2P', monospace";
-      ctx.shadowColor = "black";
-      ctx.shadowBlur = 4;
-      ctx.shadowOffsetX = 2;
-      ctx.shadowOffsetY = 2;
-      
-      const weapon = player.weapons[player.currentWeapon];
-      ctx.fillText("Arma: " + weapon.name, hudX + 10, hudY + 30);
-      ctx.fillText("Mun: " + weapon.ammo + "/" + weapon.magazine, hudX + 10, hudY + 50);
-      ctx.fillText("Salud:", hudX + 10, hudY + 70);
-      // Barra de salud del jugador
-      const barWidth = 100, barHeight = 10;
-      const healthPercent = player.health / player.maxHealth;
-      ctx.strokeStyle = "#ffcc00";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(hudX + 80, hudY + 60, barWidth, barHeight);
-      ctx.fillStyle = "red";
-      ctx.fillRect(hudX + 80, hudY + 60, barWidth * healthPercent, barHeight);
-      
-      ctx.fillText("Cacerías: " + killCount, hudX + 10, hudY + 90);
-      ctx.fillText("Días: " + dayCount, hudX + 10, hudY + 110);
-      ctx.fillText("Fase: " + ((currentBrightness < 0.5) ? "Noche" : "Día"), hudX + 150, hudY + 30);
-      
-      ctx.shadowColor = "transparent";
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
+      ctx.fillText("Arma: " + player.weapons[player.currentWeapon].name, 10, 20);
+      ctx.fillText("Mun: " + player.weapons[player.currentWeapon].ammo + "/" + player.weapons[player.currentWeapon].magazine, 10, 40);
+      ctx.fillText("Salud: " + Math.floor(player.health), 10, 60);
+      ctx.fillText("Fase: " + ((currentBrightness < 0.5) ? "Noche" : "Día") + (fullMoon ? " (Luna Llena)" : ""), 10, 80);
+      // Textos en la esquina superior derecha
+      ctx.textAlign = "right";
+      ctx.fillText("Días: " + dayCount, canvas.width - 10, 20);
+      ctx.fillText("Hora: " + gameTimeStr, canvas.width - 10, 40);
     }
 
     function gameLoop() {
+      updateDayNight();
       update();
       draw();
       if (!gameOver) {
         requestAnimationFrame(gameLoop);
       } else {
-        console.log("Game Over. Total de cacerías: " + killCount + ". Días sobrevividos: " + dayCount);
+        console.log("Game Over. Cacerías: " + killCount + ", Días: " + dayCount);
       }
     }
 
